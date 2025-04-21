@@ -18,6 +18,7 @@ type ValidationService struct {
 	validator  repository.IValidator
 	fileSystem repository.IFileSystem
 	hashMap    map[string]model.FileHash // 파일 경로 -> 해시 정보 매핑
+	rootPath   string                    // 검증 대상 루트 경로
 }
 
 // NewValidationService는 새로운 ValidationService 인스턴스를 생성
@@ -29,11 +30,15 @@ func NewValidationService(
 		validator:  validator,
 		fileSystem: fs,
 		hashMap:    make(map[string]model.FileHash),
+		// rootPath는 ValidateDirectory 호출 시 설정됨
 	}
 }
 
 // ValidateDirectory는 디렉토리 내 파일들의 무결성을 검증
 func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.ValidationResult, error) {
+	// rootPath 설정
+	s.rootPath = rootPath
+
 	// 결과 저장용 슬라이스
 	var results []model.ValidationResult
 
@@ -164,16 +169,15 @@ func (s *ValidationService) parseHashFile(content string) error {
 		pathHash := parts[1]
 		dataHash := parts[2]
 
-		// 모든 파일 경로에 대한 해시를 생성하고 매칭되는 것 찾기
-		// 실제 구현에서는 효율성을 위해 다른 방법 고려 필요
-		err := s.fileSystem.WalkDirectory(".", func(metadata model.FileMetadata) error {
+		// rootPath 기준으로 디렉토리 순회
+		err := s.fileSystem.WalkDirectory(s.rootPath, func(metadata model.FileMetadata) error {
 			if metadata.IsDirectory {
 				return nil
 			}
 
 			calcPathHash, err := s.validator.GeneratePathHash(metadata.RelativePath)
 			if err != nil {
-				return nil // 오류가 있더라도 계속 진행
+				return nil
 			}
 
 			if calcPathHash == pathHash {
@@ -183,7 +187,6 @@ func (s *ValidationService) parseHashFile(content string) error {
 					DataHash: dataHash,
 				}
 			}
-
 			return nil
 		})
 

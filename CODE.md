@@ -605,16 +605,15 @@ func (s *ValidationService) parseHashFile(content string) error {
 		pathHash := parts[1]
 		dataHash := parts[2]
 
-		// 모든 파일 경로에 대한 해시를 생성하고 매칭되는 것 찾기
-		// 실제 구현에서는 효율성을 위해 다른 방법 고려 필요
-		err := s.fileSystem.WalkDirectory(".", func(metadata model.FileMetadata) error {
+		// 🔥 현재는 "." 기준 → 👇 반드시 rootPath 기준이어야 함
+		err := s.fileSystem.WalkDirectory(s.rootPath, func(metadata model.FileMetadata) error {
 			if metadata.IsDirectory {
 				return nil
 			}
 
 			calcPathHash, err := s.validator.GeneratePathHash(metadata.RelativePath)
 			if err != nil {
-				return nil // 오류가 있더라도 계속 진행
+				return nil
 			}
 
 			if calcPathHash == pathHash {
@@ -624,7 +623,6 @@ func (s *ValidationService) parseHashFile(content string) error {
 					DataHash: dataHash,
 				}
 			}
-
 			return nil
 		})
 
@@ -654,27 +652,29 @@ import (
 	"github.com/kihyun1998/hash_validator/internal/service/validator"
 )
 
-// ValidateDirectoryCGO는 디렉토리의 무결성을 검증하는 C 호환 함수
-
 //export ValidateDirectory
 func ValidateDirectory(dirPath *C.char) *C.char {
 	path := C.GoString(dirPath)
 
-	// 의존성 초기화
 	fileSystem := fsys.NewLocalFileSystem()
 	hashValidator := hashval.NewSHA256Validator()
-
-	// 서비스 초기화
 	validationService := validator.NewValidationService(hashValidator, fileSystem)
 
-	// 검증 실행
 	results, err := validationService.ValidateDirectory(path)
 
-	// 결과를 JSON으로 변환
 	type Response struct {
 		Success bool                     `json:"success"`
 		Error   string                   `json:"error,omitempty"`
 		Results []model.ValidationResult `json:"results,omitempty"`
+	}
+
+	// 전체 파일이 유효한지 체크
+	allValid := true
+	for _, result := range results {
+		if !result.IsValid {
+			allValid = false
+			break
+		}
 	}
 
 	var response Response
@@ -685,46 +685,40 @@ func ValidateDirectory(dirPath *C.char) *C.char {
 		}
 	} else {
 		response = Response{
-			Success: true,
+			Success: allValid,
 			Results: results,
 		}
 	}
 
-	// JSON으로 마샬링
 	jsonData, err := json.Marshal(response)
 	if err != nil {
 		jsonData = []byte(`{"success":false,"error":"JSON 마샬링 실패"}`)
 	}
 
-	// C 문자열로 변환
 	cResult := C.CString(string(jsonData))
+	if cResult == nil {
+		return C.CString(`{"success":false,"error":"메모리 할당 실패 (C.CString returned nil)"}`)
+	}
 	return cResult
 }
 
-// FreeString은 C에서 할당된 문자열을 해제
-
 //export FreeString
 func FreeString(str *C.char) {
-	C.free(unsafe.Pointer(str))
+	if str != nil {
+		C.free(unsafe.Pointer(str))
+	}
 }
 
-// GetValidResults는 유효한 파일 목록만 반환하는 C 호환 함수
-//
 //export GetValidFiles
 func GetValidFiles(dirPath *C.char) *C.char {
 	path := C.GoString(dirPath)
 
-	// 의존성 초기화
 	fileSystem := fsys.NewLocalFileSystem()
 	hashValidator := hashval.NewSHA256Validator()
-
-	// 서비스 초기화
 	validationService := validator.NewValidationService(hashValidator, fileSystem)
 
-	// 검증 실행
 	results, err := validationService.ValidateDirectory(path)
 
-	// 유효한 파일만 필터링
 	var validFiles []string
 	if err == nil {
 		for _, result := range results {
@@ -734,7 +728,6 @@ func GetValidFiles(dirPath *C.char) *C.char {
 		}
 	}
 
-	// JSON으로 마샬링
 	type Response struct {
 		Success bool     `json:"success"`
 		Error   string   `json:"error,omitempty"`
@@ -759,12 +752,13 @@ func GetValidFiles(dirPath *C.char) *C.char {
 		jsonData = []byte(`{"success":false,"error":"JSON 마샬링 실패"}`)
 	}
 
-	// C 문자열로 변환
 	cResult := C.CString(string(jsonData))
+	if cResult == nil {
+		return C.CString(`{"success":false,"error":"메모리 할당 실패 (C.CString returned nil)"}`)
+	}
 	return cResult
 }
 
-// main 함수는 cgo 요구사항
 func main() {}
 
 ```

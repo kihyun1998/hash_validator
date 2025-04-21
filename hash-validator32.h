@@ -81,9 +81,6 @@ extern "C" {
 
 extern __declspec(dllexport) char* ValidateDirectory(char* dirPath);
 extern __declspec(dllexport) void FreeString(char* str);
-
-// GetValidResults는 유효한 파일 목록만 반환하는 C 호환 함수
-//
 extern __declspec(dllexport) char* GetValidFiles(char* dirPath);
 
 #ifdef __cplusplus
