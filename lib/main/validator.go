@@ -13,6 +13,10 @@ import (
 	"github.com/kihyun1998/hash_validator/internal/service/validator"
 )
 
+const (
+	SumFileName = "hash_sum.txt" // 해시 검증에 사용할 파일 이름
+)
+
 //export ValidateDirectory
 func ValidateDirectory(dirPath *C.char) *C.char {
 	path := C.GoString(dirPath)
@@ -21,21 +25,12 @@ func ValidateDirectory(dirPath *C.char) *C.char {
 	hashValidator := hashval.NewSHA256Validator()
 	validationService := validator.NewValidationService(hashValidator, fileSystem)
 
-	results, err := validationService.ValidateDirectory(path)
+	results, allValid, err := validationService.ValidateDirectory(path)
 
 	type Response struct {
 		Success bool                     `json:"success"`
 		Error   string                   `json:"error,omitempty"`
 		Results []model.ValidationResult `json:"results,omitempty"`
-	}
-
-	// 전체 파일이 유효한지 체크
-	allValid := true
-	for _, result := range results {
-		if !result.IsValid {
-			allValid = false
-			break
-		}
 	}
 
 	var response Response
@@ -44,10 +39,14 @@ func ValidateDirectory(dirPath *C.char) *C.char {
 			Success: false,
 			Error:   err.Error(),
 		}
+	} else if !allValid {
+		response = Response{
+			Success: false,
+			Results: results,
+		}
 	} else {
 		response = Response{
-			Success: allValid,
-			Results: results,
+			Success: true,
 		}
 	}
 
@@ -78,15 +77,17 @@ func GetValidFiles(dirPath *C.char) *C.char {
 	hashValidator := hashval.NewSHA256Validator()
 	validationService := validator.NewValidationService(hashValidator, fileSystem)
 
-	results, err := validationService.ValidateDirectory(path)
+	_, allValid, err := validationService.ValidateDirectory(path)
 
 	var validFiles []string
-	if err == nil {
-		for _, result := range results {
-			if result.IsValid {
-				validFiles = append(validFiles, result.FilePath)
+	if err == nil && allValid {
+		// 모든 파일이 유효할 경우 디렉토리 내 모든 파일 목록 반환
+		fileSystem.WalkDirectory(path, func(metadata model.FileMetadata) error {
+			if !metadata.IsDirectory && metadata.RelativePath != SumFileName {
+				validFiles = append(validFiles, metadata.RelativePath)
 			}
-		}
+			return nil
+		})
 	}
 
 	type Response struct {
@@ -103,7 +104,7 @@ func GetValidFiles(dirPath *C.char) *C.char {
 		}
 	} else {
 		response = Response{
-			Success: true,
+			Success: allValid,
 			Files:   validFiles,
 		}
 	}
