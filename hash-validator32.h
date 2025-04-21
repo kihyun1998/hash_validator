@@ -79,13 +79,7 @@ typedef struct { void *data; GoInt len; GoInt cap; } GoSlice;
 extern "C" {
 #endif
 
-
-// ValidateDirectoryCGO는 디렉토리의 무결성을 검증하는 C 호환 함수
-//
 extern __declspec(dllexport) char* ValidateDirectory(char* dirPath);
-
-// FreeString은 C에서 할당된 문자열을 해제
-//
 extern __declspec(dllexport) void FreeString(char* str);
 
 // GetValidResults는 유효한 파일 목록만 반환하는 C 호환 함수

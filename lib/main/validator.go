@@ -14,7 +14,7 @@ import (
 )
 
 // ValidateDirectoryCGO는 디렉토리의 무결성을 검증하는 C 호환 함수
-//
+
 //export ValidateDirectory
 func ValidateDirectory(dirPath *C.char) *C.char {
 	path := C.GoString(dirPath)
@@ -61,7 +61,7 @@ func ValidateDirectory(dirPath *C.char) *C.char {
 }
 
 // FreeString은 C에서 할당된 문자열을 해제
-//
+
 //export FreeString
 func FreeString(str *C.char) {
 	C.free(unsafe.Pointer(str))

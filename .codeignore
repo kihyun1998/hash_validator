@@ -2,7 +2,7 @@ codemd-windows-amd64.exe
 CODE.md
 .gitattributes
 go.mod
-hash-validator.dll
-hash-validator.h
+**/*.dll
+**/*.h
 LICENSE
 Makefile
