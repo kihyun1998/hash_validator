@@ -454,11 +454,17 @@ const (
 	SumFileName = "hash_sum.txt" // 해시 검증에 사용할 파일 이름
 )
 
+var excludedFiles = map[string]struct{}{
+	"unins000.exe": {},
+	"unins000.dat": {},
+}
+
 // ValidationService는 파일 해시 검증을 담당하는 서비스
 type ValidationService struct {
 	validator  repository.IValidator
 	fileSystem repository.IFileSystem
 	hashMap    map[string]model.FileHash // 파일 경로 -> 해시 정보 매핑
+	rootPath   string                    // 검증 대상 루트 경로
 }
 
 // NewValidationService는 새로운 ValidationService 인스턴스를 생성
@@ -470,11 +476,15 @@ func NewValidationService(
 		validator:  validator,
 		fileSystem: fs,
 		hashMap:    make(map[string]model.FileHash),
+		// rootPath는 ValidateDirectory 호출 시 설정됨
 	}
 }
 
 // ValidateDirectory는 디렉토리 내 파일들의 무결성을 검증
 func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.ValidationResult, error) {
+	// rootPath 설정
+	s.rootPath = rootPath
+
 	// 결과 저장용 슬라이스
 	var results []model.ValidationResult
 
@@ -540,6 +550,14 @@ func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.Validati
 
 // validateFile은 단일 파일에 대한 해시 검증을 수행
 func (s *ValidationService) validateFile(rootPath, relativePath string) model.ValidationResult {
+	if _, excluded := excludedFiles[filepath.Base(relativePath)]; excluded {
+		return model.ValidationResult{
+			FilePath:     relativePath,
+			IsValid:      true,
+			ErrorMessage: "",
+		}
+	}
+
 	fullPath := filepath.Join(rootPath, relativePath)
 
 	// 예상 해시 정보 가져오기
@@ -605,7 +623,7 @@ func (s *ValidationService) parseHashFile(content string) error {
 		pathHash := parts[1]
 		dataHash := parts[2]
 
-		// 🔥 현재는 "." 기준 → 👇 반드시 rootPath 기준이어야 함
+		// rootPath 기준으로 디렉토리 순회
 		err := s.fileSystem.WalkDirectory(s.rootPath, func(metadata model.FileMetadata) error {
 			if metadata.IsDirectory {
 				return nil
