@@ -2,7 +2,6 @@ package fileutil
 
 import (
 	"path/filepath"
-	"strings"
 )
 
 // PatternExclusion은 패턴 기반 파일 제외 구현체
@@ -27,14 +26,6 @@ func (p *PatternExclusion) IsExcluded(filePath string) bool {
 		matched, err := filepath.Match(pattern, baseFileName)
 		if err == nil && matched {
 			return true
-		}
-
-		// 경로 전체에 대한 매칭도 검사 (필요한 경우)
-		if strings.Contains(pattern, "/") || strings.Contains(pattern, "\\") {
-			matched, err = filepath.Match(pattern, filePath)
-			if err == nil && matched {
-				return true
-			}
 		}
 	}
 
