@@ -192,31 +192,23 @@ func main() {
 	validationService := validator.NewValidationService(hashValidator, fileSystem)
 
 	// 검증 실행
-	results, err := validationService.ValidateDirectory(rootPath)
+	results, allValid, err := validationService.ValidateDirectory(rootPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "오류 발생: %v\n", err)
 		os.Exit(1)
 	}
 
 	// 결과 출력
-	validCount, invalidCount := 0, 0
-	for _, result := range results {
-		if result.IsValid {
-			fmt.Printf("✓ %s: 유효함\n", result.FilePath)
-			validCount++
-		} else {
-			fmt.Printf("✗ %s: 유효하지 않음 - %s\n", result.FilePath, result.ErrorMessage)
-			invalidCount++
+	if allValid {
+		fmt.Println("모든 파일이 유효합니다.")
+	} else {
+		fmt.Println("일부 파일이 유효하지 않습니다:")
+		for _, result := range results {
+			fmt.Printf("  - %s: %s\n", result.FilePath, result.ErrorMessage)
 		}
-	}
 
-	// 요약 출력
-	totalFiles := len(results)
-	fmt.Printf("\n검증 완료: 총 %d개 파일 중 %d개 유효, %d개 유효하지 않음\n",
-		totalFiles, validCount, invalidCount)
-
-	// 유효하지 않은 파일이 있으면 오류 코드로 종료
-	if invalidCount > 0 {
+		// 유효하지 않은 파일 개수 출력
+		fmt.Printf("\n총 %d개의 유효하지 않은 파일이 발견되었습니다.\n", len(results))
 		os.Exit(2)
 	}
 }
@@ -464,7 +456,6 @@ type ValidationService struct {
 	validator  repository.IValidator
 	fileSystem repository.IFileSystem
 	hashMap    map[string]model.FileHash // 파일 경로 -> 해시 정보 매핑
-	rootPath   string                    // 검증 대상 루트 경로
 }
 
 // NewValidationService는 새로운 ValidationService 인스턴스를 생성
@@ -481,10 +472,8 @@ func NewValidationService(
 }
 
 // ValidateDirectory는 디렉토리 내 파일들의 무결성을 검증
-func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.ValidationResult, error) {
-	// rootPath 설정
-	s.rootPath = rootPath
-
+// 성공 시에는 간단한 결과만, 실패 시에는 자세한 오류 정보를 반환
+func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.ValidationResult, bool, error) {
 	// 결과 저장용 슬라이스
 	var results []model.ValidationResult
 
@@ -493,18 +482,18 @@ func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.Validati
 
 	// 해시 파일 존재 확인
 	if !s.fileSystem.FileExists(sumFilePath) {
-		return nil, fmt.Errorf("해시 파일이 존재하지 않음: %s", sumFilePath)
+		return nil, false, fmt.Errorf("해시 파일이 존재하지 않음: %s", sumFilePath)
 	}
 
 	// 해시 파일 읽기
 	hashData, err := s.fileSystem.ReadFile(sumFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("해시 파일 읽기 실패: %w", err)
+		return nil, false, fmt.Errorf("해시 파일 읽기 실패: %w", err)
 	}
 
 	// 해시 데이터 파싱
-	if err := s.parseHashFile(string(hashData)); err != nil {
-		return nil, err
+	if err := s.parseHashFile(string(hashData), rootPath); err != nil {
+		return nil, false, err
 	}
 
 	// 디렉토리 재귀적 검증
@@ -516,16 +505,18 @@ func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.Validati
 
 		// 파일 검증 수행
 		result := s.validateFile(rootPath, metadata.RelativePath)
-		results = append(results, result)
+		if !result.IsValid {
+			results = append(results, result)
+		}
 
 		return nil
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("디렉토리 검증 중 오류 발생: %w", err)
+		return nil, false, fmt.Errorf("디렉토리 검증 중 오류 발생: %w", err)
 	}
 
-	// 해시 파일에는 있지만 실제로 존재하지 않는 파일 확인
+	// 해시 파일에는 있지만, 실제로 존재하지 않는 파일 확인
 	for path := range s.hashMap {
 		// 이미 검증한 파일은 건너뜀
 		found := false
@@ -537,15 +528,21 @@ func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.Validati
 		}
 
 		if !found {
-			results = append(results, model.ValidationResult{
-				FilePath:     path,
-				IsValid:      false,
-				ErrorMessage: "파일이 존재하지 않음",
-			})
+			// 존재하지 않는 파일을 체크하기 위한 추가 검증
+			fileFullPath := filepath.Join(rootPath, path)
+			if !s.fileSystem.FileExists(fileFullPath) {
+				results = append(results, model.ValidationResult{
+					FilePath:     path,
+					IsValid:      false,
+					ErrorMessage: "파일이 존재하지 않음",
+				})
+			}
 		}
 	}
 
-	return results, nil
+	// 결과가 없으면 모든 파일이 유효한 것임
+	allValid := len(results) == 0
+	return results, allValid, nil
 }
 
 // validateFile은 단일 파일에 대한 해시 검증을 수행
@@ -606,7 +603,7 @@ func (s *ValidationService) validateFile(rootPath, relativePath string) model.Va
 }
 
 // parseHashFile은 해시 파일을 파싱하여 내부 맵에 저장
-func (s *ValidationService) parseHashFile(content string) error {
+func (s *ValidationService) parseHashFile(content string, rootPath string) error {
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -623,8 +620,8 @@ func (s *ValidationService) parseHashFile(content string) error {
 		pathHash := parts[1]
 		dataHash := parts[2]
 
-		// rootPath 기준으로 디렉토리 순회
-		err := s.fileSystem.WalkDirectory(s.rootPath, func(metadata model.FileMetadata) error {
+		// 현재 rootPath 기준으로 파일을 검색
+		err := s.fileSystem.WalkDirectory(rootPath, func(metadata model.FileMetadata) error {
 			if metadata.IsDirectory {
 				return nil
 			}
@@ -670,6 +667,10 @@ import (
 	"github.com/kihyun1998/hash_validator/internal/service/validator"
 )
 
+const (
+	SumFileName = "hash_sum.txt" // 해시 검증에 사용할 파일 이름
+)
+
 //export ValidateDirectory
 func ValidateDirectory(dirPath *C.char) *C.char {
 	path := C.GoString(dirPath)
@@ -678,21 +679,12 @@ func ValidateDirectory(dirPath *C.char) *C.char {
 	hashValidator := hashval.NewSHA256Validator()
 	validationService := validator.NewValidationService(hashValidator, fileSystem)
 
-	results, err := validationService.ValidateDirectory(path)
+	results, allValid, err := validationService.ValidateDirectory(path)
 
 	type Response struct {
 		Success bool                     `json:"success"`
 		Error   string                   `json:"error,omitempty"`
 		Results []model.ValidationResult `json:"results,omitempty"`
-	}
-
-	// 전체 파일이 유효한지 체크
-	allValid := true
-	for _, result := range results {
-		if !result.IsValid {
-			allValid = false
-			break
-		}
 	}
 
 	var response Response
@@ -701,10 +693,14 @@ func ValidateDirectory(dirPath *C.char) *C.char {
 			Success: false,
 			Error:   err.Error(),
 		}
+	} else if !allValid {
+		response = Response{
+			Success: false,
+			Results: results,
+		}
 	} else {
 		response = Response{
-			Success: allValid,
-			Results: results,
+			Success: true,
 		}
 	}
 
@@ -735,15 +731,17 @@ func GetValidFiles(dirPath *C.char) *C.char {
 	hashValidator := hashval.NewSHA256Validator()
 	validationService := validator.NewValidationService(hashValidator, fileSystem)
 
-	results, err := validationService.ValidateDirectory(path)
+	_, allValid, err := validationService.ValidateDirectory(path)
 
 	var validFiles []string
-	if err == nil {
-		for _, result := range results {
-			if result.IsValid {
-				validFiles = append(validFiles, result.FilePath)
+	if err == nil && allValid {
+		// 모든 파일이 유효할 경우 디렉토리 내 모든 파일 목록 반환
+		fileSystem.WalkDirectory(path, func(metadata model.FileMetadata) error {
+			if !metadata.IsDirectory && metadata.RelativePath != SumFileName {
+				validFiles = append(validFiles, metadata.RelativePath)
 			}
-		}
+			return nil
+		})
 	}
 
 	type Response struct {
@@ -760,7 +758,7 @@ func GetValidFiles(dirPath *C.char) *C.char {
 		}
 	} else {
 		response = Response{
-			Success: true,
+			Success: allValid,
 			Files:   validFiles,
 		}
 	}

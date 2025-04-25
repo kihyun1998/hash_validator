@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/kihyun1998/hash_validator/internal/infrastructure/fileutil"
 	"github.com/kihyun1998/hash_validator/internal/infrastructure/fsys"
 	"github.com/kihyun1998/hash_validator/internal/infrastructure/hashval"
 	"github.com/kihyun1998/hash_validator/internal/service/validator"
@@ -19,9 +20,10 @@ func main() {
 	// 의존성 초기화
 	fileSystem := fsys.NewLocalFileSystem()
 	hashValidator := hashval.NewSHA256Validator()
+	exclusion := fileutil.NewPatternExclusion("unins*.*")
 
 	// 서비스 초기화
-	validationService := validator.NewValidationService(hashValidator, fileSystem)
+	validationService := validator.NewValidationService(hashValidator, fileSystem, exclusion)
 
 	// 검증 실행
 	results, allValid, err := validationService.ValidateDirectory(rootPath)

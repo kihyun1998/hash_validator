@@ -13,27 +13,25 @@ const (
 	SumFileName = "hash_sum.txt" // 해시 검증에 사용할 파일 이름
 )
 
-var excludedFiles = map[string]struct{}{
-	"unins000.exe": {},
-	"unins000.dat": {},
-}
-
 // ValidationService는 파일 해시 검증을 담당하는 서비스
 type ValidationService struct {
-	validator  repository.IValidator
-	fileSystem repository.IFileSystem
-	hashMap    map[string]model.FileHash // 파일 경로 -> 해시 정보 매핑
+	validator     repository.IValidator
+	fileSystem    repository.IFileSystem
+	fileExclusion repository.IFileExclusion
+	hashMap       map[string]model.FileHash // 파일 경로 -> 해시 정보 매핑
 }
 
 // NewValidationService는 새로운 ValidationService 인스턴스를 생성
 func NewValidationService(
 	validator repository.IValidator,
 	fs repository.IFileSystem,
+	exclusion repository.IFileExclusion,
 ) *ValidationService {
 	return &ValidationService{
-		validator:  validator,
-		fileSystem: fs,
-		hashMap:    make(map[string]model.FileHash),
+		validator:     validator,
+		fileSystem:    fs,
+		fileExclusion: exclusion,
+		hashMap:       make(map[string]model.FileHash),
 		// rootPath는 ValidateDirectory 호출 시 설정됨
 	}
 }
@@ -114,7 +112,7 @@ func (s *ValidationService) ValidateDirectory(rootPath string) ([]model.Validati
 
 // validateFile은 단일 파일에 대한 해시 검증을 수행
 func (s *ValidationService) validateFile(rootPath, relativePath string) model.ValidationResult {
-	if _, excluded := excludedFiles[filepath.Base(relativePath)]; excluded {
+	if s.fileExclusion.IsExcluded(relativePath) {
 		return model.ValidationResult{
 			FilePath:     relativePath,
 			IsValid:      true,

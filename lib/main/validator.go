@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/kihyun1998/hash_validator/internal/domain/model"
+	"github.com/kihyun1998/hash_validator/internal/infrastructure/fileutil"
 	"github.com/kihyun1998/hash_validator/internal/infrastructure/fsys"
 	"github.com/kihyun1998/hash_validator/internal/infrastructure/hashval"
 	"github.com/kihyun1998/hash_validator/internal/service/validator"
@@ -21,9 +22,13 @@ const (
 func ValidateDirectory(dirPath *C.char) *C.char {
 	path := C.GoString(dirPath)
 
+	// 의존성 초기화
 	fileSystem := fsys.NewLocalFileSystem()
 	hashValidator := hashval.NewSHA256Validator()
-	validationService := validator.NewValidationService(hashValidator, fileSystem)
+	exclusion := fileutil.NewPatternExclusion("unins*.*")
+
+	// 서비스 초기화
+	validationService := validator.NewValidationService(hashValidator, fileSystem, exclusion)
 
 	results, allValid, err := validationService.ValidateDirectory(path)
 
@@ -73,9 +78,13 @@ func FreeString(str *C.char) {
 func GetValidFiles(dirPath *C.char) *C.char {
 	path := C.GoString(dirPath)
 
+	// 의존성 초기화
 	fileSystem := fsys.NewLocalFileSystem()
 	hashValidator := hashval.NewSHA256Validator()
-	validationService := validator.NewValidationService(hashValidator, fileSystem)
+	exclusion := fileutil.NewPatternExclusion("unins*.*")
+
+	// 서비스 초기화
+	validationService := validator.NewValidationService(hashValidator, fileSystem, exclusion)
 
 	_, allValid, err := validationService.ValidateDirectory(path)
 
